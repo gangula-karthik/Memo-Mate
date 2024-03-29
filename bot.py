@@ -7,6 +7,7 @@ import whisper_backend as wb
 from pydub import AudioSegment
 import tempfile
 import asyncio
+import gc
 
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
@@ -21,34 +22,49 @@ bot = commands.Bot(command_prefix='$', intents=intents)
 async def on_ready():
     print(f'We have logged in as {bot.user.name}')
 
-async def once_done(sink: discord.sinks, channel: discord.TextChannel, *args):
-    recorded_users = [
-        f"<@{user_id}>"
-        for user_id, audio in sink.audio_data.items()
-    ]
+async def disconnect_vc(sink):
     await sink.vc.disconnect()
-    files = [discord.File(fp=audio.file, filename=f"{user_id}.{sink.encoding}") for user_id, audio in sink.audio_data.items()]
-    print("We have finished recording!")
+    print("Disconnected from voice channel.")
 
-    transcriptions = []
-    loop = asyncio.get_running_loop()  # Get the current event loop
+async def create_temp_files(sink):
+    temp_files = []
     for user_id, audio in sink.audio_data.items():
         with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as tmp_file:
             buffer = audio.file
             buffer.seek(0)
             tmp_file.write(buffer.read())
-            tmp_file_name = tmp_file.name
+            temp_files.append((user_id, tmp_file.name))
+    return temp_files
 
-        files.append(discord.File(fp=tmp_file_name, filename=f"{user_id}.{sink.encoding}"))
+async def transcribe_audio_file(user_id, file_path, loop):
+    transcription = await loop.run_in_executor(None, lambda: wb.transcribe_audio(file_path))
+    return user_id, transcription
 
-        transcription = await loop.run_in_executor(None, lambda: wb.transcribe_audio(tmp_file_name))
-        transcriptions.append((user_id, transcription))
+async def cleanup_files(files):
+    for _, file_path in files:
+        os.remove(file_path)
+    gc.collect()
+    print("Temporary files cleaned up and garbage collected.")
 
-        os.remove(tmp_file_name)
-
-    print("Finished transcribing audio!")
+async def send_transcription_messages(channel, recorded_users, transcriptions, files):
     transcription_messages = [f"<@{user_id}>: {transcription['outputs']['text']}" for user_id, transcription in transcriptions]
     await channel.send(f"Finished recording audio for: {', '.join(recorded_users)}\n\nTranscriptions:\n" + "\n".join(transcription_messages), files=files)
+
+async def once_done(sink: discord.sinks, channel: discord.TextChannel, *args):
+    recorded_users = [f"<@{user_id}>" for user_id, _ in sink.audio_data.items()]
+    await disconnect_vc(sink)
+
+    temp_files = await create_temp_files(sink)
+    files = [discord.File(fp=file_path, filename=f"{user_id}.{sink.encoding}") for user_id, file_path in temp_files]
+
+    loop = asyncio.get_running_loop()
+    transcription_tasks = [transcribe_audio_file(user_id, file_path, loop) for user_id, file_path in temp_files]
+    transcriptions = await asyncio.gather(*transcription_tasks)
+
+    await cleanup_files(temp_files)
+
+    print("Finished transcribing audio!")
+    await send_transcription_messages(channel, recorded_users, transcriptions, files)
 
 @bot.command()
 async def start(ctx):
