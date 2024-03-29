@@ -71,6 +71,7 @@ pyannote.pipeline==3.0.1
 pyarrow==15.0.2
 pyarrow-hotfix==0.6
 pycparser==2.21
+pydub==0.25.1
 Pygments==2.17.2
 PyNaCl==1.5.0
 pyparsing==3.1.2
@@ -78,7 +79,6 @@ python-dateutil==2.9.0.post0
 python-dotenv==1.0.1
 pytorch-lightning==2.2.1
 pytorch-metric-learning==2.4.1
-pytube @ git+https://github.com/pytube/pytube@a32fff39058a6f7e5e59ecd06a7467b71197ce35
 pytz==2024.1
 PyYAML==6.0.1
 regex==2023.12.25
