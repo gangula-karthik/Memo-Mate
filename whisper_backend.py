@@ -1,3 +1,4 @@
+from datetime import timedelta
 import time
 import torch
 from transformers import pipeline, AutoModelForSpeechSeq2Seq
@@ -21,9 +22,12 @@ def initialize_transcription_pipeline(model=model_id, device="cpu"):
             "automatic-speech-recognition",
             model=model,
             torch_dtype=torch_dtype,
-            device=device,
-            model_kwargs={"use_flash_attention_2": is_flash_attn_2_available()},
+            device="mps",
+            model_kwargs={"attn_implementation": "flash_attention_2"} if is_flash_attn_2_available() else {
+                "attn_implementation": "sdpa"},
+
         )
+
 
 def transcribe_audio(audio_file_path, model=model_id, device="cpu"):
     """
@@ -32,19 +36,17 @@ def transcribe_audio(audio_file_path, model=model_id, device="cpu"):
     global transcription_pipeline
     if transcription_pipeline is None:
         initialize_transcription_pipeline(model, device)
-    
-    start = time.time()
+
+    starttime = time.perf_counter()
 
     outputs = transcription_pipeline(
         audio_file_path,
         chunk_length_s=30,
         batch_size=24,
-        return_timestamps=True,
+        return_timestamps=False,
     )
 
-    end = time.time()
-
-    execution_time = end - start
+    execution_time = timedelta(seconds=time.perf_counter()-starttime)
     return {"outputs": outputs, "execution_time": execution_time}
 
 
