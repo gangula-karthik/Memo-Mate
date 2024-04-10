@@ -1,3 +1,4 @@
+import aiohttp
 import discord
 from discord.ext import commands
 from dotenv import load_dotenv
@@ -5,10 +6,12 @@ import os
 import whisper_backend as wb
 import tempfile
 import asyncio
+import requests
 import gc
 
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
+HF_TOKEN = os.getenv('HF_TOKEN')
 
 intents = discord.Intents.all()
 intents.messages = True
@@ -16,6 +19,9 @@ connections = {}
 
 bot = commands.Bot(intents=intents)
 recordings = bot.create_group("recording", "You can start/stop the recording")
+tasks = bot.create_group("tasks", "You can ask the bot questions based on your audio recordings")
+
+transcription = "Empty transcription"
 
 
 @bot.event
@@ -47,7 +53,9 @@ async def cleanup_files(files):
     gc.collect()
 
 async def send_transcription_messages(channel, recorded_users, transcriptions, files):
+    global transcription
     transcription_messages = [f"<@{user_id}>: {transcription['outputs']['text']}" for user_id, transcription in transcriptions]
+    transcription = "\n".join(transcription_messages)
     await channel.send(f"Finished recording audio for: {', '.join(recorded_users)}\n\nTranscriptions:\n" + "\n".join(transcription_messages), files=files)
 
 async def once_done(sink: discord.sinks, channel: discord.TextChannel, *args):
@@ -94,6 +102,22 @@ async def stop(ctx):
         del connections[ctx.guild.id]
     else:
         await ctx.send_response("I am currently not recording here.")
+
+@tasks.command(description="Get the bot to give you a summary of the audio recording.")
+async def summary(ctx):
+    API_URL = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2"
+    payload = {
+        "inputs": f"Please summarize the key points and decisions made in the audio recording: {transcription}."
+    }
+    
+    async with aiohttp.ClientSession() as session:
+        async with session.post(API_URL, json=payload, headers={"Authorization": f"Bearer {HF_TOKEN}"}) as response:
+            if response.status == 200:
+                output = await response.json()
+                summary = output[0].get('generated_text', 'Summary not available.')
+                await ctx.send(summary)
+            else:
+                await ctx.send("Failed to generate summary, please try again later.")
 
 
 if __name__ == "__main__":
