@@ -1,10 +1,8 @@
 import discord
 from discord.ext import commands
 from dotenv import load_dotenv
-import random
 import os
 import whisper_backend as wb
-from pydub import AudioSegment
 import tempfile
 import asyncio
 import gc
@@ -16,10 +14,13 @@ intents = discord.Intents.all()
 intents.messages = True
 connections = {}
 
-bot = commands.Bot(command_prefix='$', intents=intents)
+bot = commands.Bot(intents=intents)
+recordings = bot.create_group("recording", "You can start/stop the recording")
+
 
 @bot.event
 async def on_ready():
+    # bot.change_presence(status=discord.Status.Online, activity=discord.game('a video game'))
     print(f'We have logged in as {bot.user.name}')
 
 async def disconnect_vc(sink):
@@ -44,7 +45,6 @@ async def cleanup_files(files):
     for _, file_path in files:
         os.remove(file_path)
     gc.collect()
-    print("Temporary files cleaned up and garbage collected.")
 
 async def send_transcription_messages(channel, recorded_users, transcriptions, files):
     transcription_messages = [f"<@{user_id}>: {transcription['outputs']['text']}" for user_id, transcription in transcriptions]
@@ -62,18 +62,21 @@ async def once_done(sink: discord.sinks, channel: discord.TextChannel, *args):
     transcriptions = await asyncio.gather(*transcription_tasks)
 
     await cleanup_files(temp_files)
-
-    print("Finished transcribing audio!")
     await send_transcription_messages(channel, recorded_users, transcriptions, files)
 
-@bot.command()
+@recordings.command(description="Start recording audio in the voice channel you are in.")
 async def start(ctx):
     voice = ctx.author.voice
 
     if not voice:
         await ctx.send_response("You aren't in a voice channel!")
 
-    vc = await voice.channel.connect()
+    try:
+        vc = await voice.channel.connect()
+    except AttributeError:
+        await ctx.send_response("I am already recording in this voice channel.")
+        return
+    
     connections.update({ctx.guild.id: vc}) 
 
     vc.start_recording(
@@ -81,15 +84,14 @@ async def start(ctx):
         once_done, 
         ctx.channel
     )
-    await ctx.send_response("Started recording!")
+    await ctx.send_response("🎙️ Started recording!")
 
-@bot.command()
+@recordings.command(description="Stop recording audio in the voice channel you are in.")
 async def stop(ctx):
     if ctx.guild.id in connections:
         vc = connections[ctx.guild.id]
         vc.stop_recording() 
         del connections[ctx.guild.id]
-        # await ctx.delete()
     else:
         await ctx.send_response("I am currently not recording here.")
 
