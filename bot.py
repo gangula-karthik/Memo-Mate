@@ -21,7 +21,7 @@ bot = commands.Bot(intents=intents)
 recordings = bot.create_group("recording", "You can start/stop the recording")
 tasks = bot.create_group("tasks", "You can ask the bot questions based on your audio recordings")
 
-transcription = "Empty transcription"
+text_data = "Empty transcription"
 
 
 @bot.event
@@ -53,9 +53,9 @@ async def cleanup_files(files):
     gc.collect()
 
 async def send_transcription_messages(channel, recorded_users, transcriptions, files):
-    global transcription
+    global text_data
     transcription_messages = [f"<@{user_id}>: {transcription['outputs']['text']}" for user_id, transcription in transcriptions]
-    transcription = "\n".join(transcription_messages)
+    text_data = "\n".join(transcription_messages)
     await channel.send(f"Finished recording audio for: {', '.join(recorded_users)}\n\nTranscriptions:\n" + "\n".join(transcription_messages), files=files)
 
 async def once_done(sink: discord.sinks, channel: discord.TextChannel, *args):
@@ -96,10 +96,12 @@ async def start(ctx):
 
 @recordings.command(description="Stop recording audio in the voice channel you are in.")
 async def stop(ctx):
+    await ctx.defer(ephemeral=True)
     if ctx.guild.id in connections:
         vc = connections[ctx.guild.id]
-        vc.stop_recording() 
+        vc.stop_recording()
         del connections[ctx.guild.id]
+        await ctx.send_response("🛑 Stopped recording!")
     else:
         await ctx.send_response("I am currently not recording here.")
 
@@ -107,7 +109,7 @@ async def stop(ctx):
 async def summary(ctx):
     API_URL = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2"
     payload = {
-        "inputs": f"Please summarize the key points and decisions made in the audio recording: {transcription}."
+        "inputs": f"Please summarize the key points and decisions made in the audio recording: {text_data}."
     }
     
     async with aiohttp.ClientSession() as session:
@@ -115,6 +117,7 @@ async def summary(ctx):
             if response.status == 200:
                 output = await response.json()
                 summary = output[0].get('generated_text', 'Summary not available.')
+                await ctx.defer(ephemeral=True)
                 await ctx.send(summary)
             else:
                 await ctx.send("Failed to generate summary, please try again later.")
