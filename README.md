@@ -9,7 +9,8 @@ A discord bot that will record your meetings and give you a transcription along 
 ## Features
 
 - Super fast transcription service powered by distil whisper + better transformer
-- Mistral 7B model to power your conversations with the bot to get shit done 
+- Mistral 7B model to power your conversations with the bot to get shit done
+- Support for discord slash commands
 
 ## Installation
 
